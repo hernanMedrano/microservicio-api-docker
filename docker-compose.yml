@@ -1,24 +1,20 @@
-
-
 services:
   database-maintenance-service:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: database-maintenance-service
-    restart: always
-    expose:
-      - "3000"
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
     environment:
-      # Configuración de Node.js
       NODE_ENV: ${NODE_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      
-      # Configuración de la aplicación
       PORT: 3000
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
-      
-      # Configuración de SQL Server
+
       DB_SERVER: ${DB_SERVER}
       DB_PORT: ${DB_PORT:-1433}
       DB_USER: ${DB_USER}
@@ -28,57 +24,53 @@ services:
       TRUST_SERVER_CERTIFICATE: ${TRUST_SERVER_CERTIFICATE:-false}
       DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-30000}
       DB_REQUEST_TIMEOUT: ${DB_REQUEST_TIMEOUT:-900000}
-    
+
     volumes:
       - ./logs:/app/logs
-    
-    networks:
-      - backend
-    
-    # Healthcheck personalizado
+
+    expose:
+      - "3000"
+
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    
-    # Limitación de recursos
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 1G
-        reservations:
-          cpus: '1'
-          memory: 512M
-    
-    # Logging
+
+    networks:
+      - backend
+
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # Nginx como reverse proxy
   nginx:
     image: nginx:alpine
     container_name: nginx-proxy
-    restart: always
+    restart: unless-stopped
+
     ports:
       - "80:80"
+
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+    depends_on:
+      database-maintenance-service:
+        condition: service_healthy
+
     networks:
       - backend
-    depends_on:
-      - database-maintenance-service
+
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
 networks:
   backend:
-    external: true
+    driver: bridge
